@@ -226,6 +226,18 @@ public:
 
             // Получаем кодек из сессии
             switch_codec_t *codec = NULL;
+
+            // Получаем канал из сессии
+            switch_channel_t *channel = switch_core_session_get_channel(session);
+
+            // Извлекаем кодек из приватных данных канала
+            codec = (switch_codec_t *)switch_channel_get_private(channel, MY_BUG_NAME);
+
+            if (codec) {
+                switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "Using codec: %s\n", codec->name);
+            } else {
+                switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Failed to retrieve codec from channel.\n");
+            }
             if (switch_core_session_get_codec(session, &codec) == SWITCH_STATUS_SUCCESS && codec) {
                 // Логируем полученный кодек
                 switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "Using codec: %s\n", codec->encoding);
