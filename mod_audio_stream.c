@@ -292,17 +292,25 @@ switch_bool_t fork_write_audio(switch_core_session_t *session, switch_media_bug_
     switch_frame_t *frame;
     private_t *tech_pvt = (private_t *) switch_core_media_bug_get_user_data(bug);
 
+    // Логируем информацию о состоянии
+    switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "Checking playback state: audio_paused=%d, close_requested=%d\n",
+                      tech_pvt->audio_paused, tech_pvt->close_requested);
+
     // Проверка состояния и наличия объектов
     if (!tech_pvt || tech_pvt->audio_paused || tech_pvt->close_requested) {
+        switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "Skipping audio write due to paused or closed state.\n");
         return SWITCH_TRUE;
     }
 
-    // Проверка на наличие данных для записи
+    // Проверяем наличие данных для записи
     if (switch_mutex_trylock(tech_pvt->mutex) == SWITCH_STATUS_SUCCESS) {
         // Получаем фрейм для записи данных
         frame = switch_core_media_bug_get_write_replace_frame(bug);
         if (frame && tech_pvt->data && tech_pvt->data_length > 0) {
             size_t data_size = (tech_pvt->data_length > frame->buflen) ? frame->buflen : tech_pvt->data_length;
+
+            // Логируем размер данных перед записью
+            switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "Writing audio data, size: %zu bytes\n", data_size);
 
             // Копируем данные в фрейм
             memcpy(frame->data, tech_pvt->data, data_size);
@@ -310,9 +318,13 @@ switch_bool_t fork_write_audio(switch_core_session_t *session, switch_media_bug_
             frame->samples = data_size / 2;  // Пример для 16-битного аудио
 
             // Передаем данные в канал
-            switch_core_media_bug_set_write_replace_frame(bug, frame);
+            if (switch_core_media_bug_set_write_replace_frame(bug, frame) == SWITCH_STATUS_SUCCESS) {
+                switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "Audio frame written successfully.\n");
+            } else {
+                switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Failed to set write frame.\n");
+            }
         } else {
-            switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "No audio data available.\n");
+            switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "No audio data available or invalid data.\n");
         }
         switch_mutex_unlock(tech_pvt->mutex);
     }

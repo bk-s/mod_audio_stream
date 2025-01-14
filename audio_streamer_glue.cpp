@@ -170,6 +170,7 @@ public:
                 std::string msg(message);
                 if (processAudioData(psession, msg) != SWITCH_TRUE) {
                     m_notify(psession, EVENT_JSON, msg.c_str());
+                    switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(psession), SWITCH_LOG_DEBUG, "Received WebSocket message: %s\n", msg.c_str());
                 }
                 if (!m_suppress_log) {
                     switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(psession), SWITCH_LOG_DEBUG, "response: %s\n", msg.c_str());
@@ -193,6 +194,9 @@ public:
     cJSON* json = cJSON_Parse(message.c_str());
     switch_bool_t status = SWITCH_FALSE;
 
+    // Логируем входное сообщение
+    switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "Received JSON: %s\n", message.c_str());
+
     if (!json) {
         switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Invalid JSON message: %s\n", message.c_str());
         return status;
@@ -206,14 +210,19 @@ public:
             const char* audioDataType = cJSON_GetObjectCstr(jsonData, "audioDataType");
             int sampleRate = cJSON_GetObjectItem(jsonData, "sampleRate")->valueint;
 
+            // Логируем полученные данные
+            switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "AudioDataType: %s, SampleRate: %d\n", audioDataType, sampleRate);
+
             if (audioData && audioDataType && strcmp(audioDataType, "raw") == 0) {
                 std::string rawAudio = base64_decode(audioData);
 
-                // Проверка длины данных
+                // Логируем результат декодирования
                 if (rawAudio.empty()) {
                     switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Decoded audio is empty.\n");
                     cJSON_Delete(json);
                     return status;
+                } else {
+                    switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "Decoded audio size: %zu bytes\n", rawAudio.size());
                 }
 
                 // Передача аудиоданных в канал
@@ -222,7 +231,11 @@ public:
                 write_frame.datalen = rawAudio.size();
                 write_frame.samples = rawAudio.size() / 2;  // Assuming 16-bit audio
 
+                // Логируем попытку записи в канал
+                switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "Attempting to write audio frame with size: %zu bytes\n", write_frame.datalen);
+
                 if (switch_core_session_write_frame(session, &write_frame, SWITCH_IO_FLAG_NONE, 0) == SWITCH_STATUS_SUCCESS) {
+                    switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "Audio frame written successfully.\n");
                     status = SWITCH_TRUE;
                 } else {
                     switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Failed to write audio frame.\n");
@@ -233,7 +246,7 @@ public:
 
     cJSON_Delete(json);
     return status;
-    }
+}
 
     switch_bool_t processMessage(switch_core_session_t* session, std::string& message) {
         cJSON* json = cJSON_Parse(message.c_str());
