@@ -235,10 +235,6 @@ public:
 
             if (codec) {
                 switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "Using codec: %s\n", codec->name);
-            } else {
-                switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Failed to retrieve codec from channel.\n");
-            }
-            if (switch_core_session_get_codec(session, &codec) == SWITCH_STATUS_SUCCESS && codec) {
                 // Логируем полученный кодек
                 switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "Using codec: %s\n", codec->encoding);
 
@@ -261,7 +257,7 @@ public:
                     switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Failed to write audio frame.\n");
                 }
             } else {
-                switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Failed to retrieve codec from session.\n");
+                switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Failed to retrieve codec from channel.\n");
             }
         }
 }
