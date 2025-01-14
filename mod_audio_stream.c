@@ -53,7 +53,7 @@ static switch_bool_t capture_callback(switch_media_bug_t *bug, void *user_data, 
     }
 
     return SWITCH_TRUE;
-}
+    }
 
 static switch_status_t start_capture(switch_core_session_t *session,
                                      switch_media_bug_flag_t flags,
@@ -138,7 +138,6 @@ static switch_status_t send_text(switch_core_session_t *session, char* text) {
     return status;
 }
 
-// Определение функции stream_write_audio
 static switch_bool_t stream_write_audio(switch_core_session_t *session, switch_media_bug_t *bug) {
     private_t *tech_pvt = (private_t *)switch_core_media_bug_get_user_data(bug);
     if (!tech_pvt || tech_pvt->audio_paused || tech_pvt->close_requested) {

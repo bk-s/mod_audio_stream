@@ -149,36 +149,71 @@ public:
         }
     }
 
-    void eventCallback(notifyEvent_t event, const char* message) {
-        switch_core_session_t* psession = switch_core_session_locate(m_sessionId.c_str());
-        if(psession) {
-            switch (event) {
-                case CONNECT_SUCCESS:
-                    send_initial_metadata(psession);
-                    m_notify(psession, EVENT_CONNECT, message);
-                    break;
-                case CONNECTION_DROPPED:
-                    switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(psession), SWITCH_LOG_INFO, "connection closed\n");
-                    m_notify(psession, EVENT_DISCONNECT, message);
-                    break;
-                case CONNECT_ERROR:
-                    switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(psession), SWITCH_LOG_INFO, "connection error\n");
-                    m_notify(psession, EVENT_ERROR, message);
-
-                    media_bug_close(psession);
-
-                    break;
-                case MESSAGE:
-                    std::string msg(message);
-                    if(processMessage(psession, msg) != SWITCH_TRUE) {
-                        m_notify(psession, EVENT_JSON, msg.c_str());
-                    }
-                    if(!m_suppress_log)
-                        switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(psession), SWITCH_LOG_DEBUG, "response: %s\n", msg.c_str());
-                    break;
+    void AudioStreamer::eventCallback(notifyEvent_t event, const char* message) {
+    switch_core_session_t* psession = switch_core_session_locate(m_sessionId.c_str());
+    if(psession) {
+        switch (event) {
+            case CONNECT_SUCCESS:
+                send_initial_metadata(psession);
+                m_notify(psession, EVENT_CONNECT, message);
+                break;
+            case CONNECTION_DROPPED:
+                switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(psession), SWITCH_LOG_INFO, "connection closed\n");
+                m_notify(psession, EVENT_DISCONNECT, message);
+                break;
+            case CONNECT_ERROR:
+                switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(psession), SWITCH_LOG_INFO, "connection error\n");
+                m_notify(psession, EVENT_ERROR, message);
+                media_bug_close(psession);
+                break;
+            case MESSAGE: {
+                std::string msg(message);
+                if(processMessage(psession, msg) != SWITCH_TRUE) {
+                    m_notify(psession, EVENT_JSON, msg.c_str());
+                }
+                if(!m_suppress_log)
+                    switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(psession), SWITCH_LOG_DEBUG, "response: %s\n", msg.c_str());
+                break;
             }
-            switch_core_session_rwunlock(psession);
+            case MEDIA: {
+                // Обработка медиаданных (аудио)
+                std::string msg(message);
+                if (processAudioData(psession, msg) == SWITCH_TRUE) {
+                    m_notify(psession, EVENT_MEDIA, msg.c_str());
+                }
+                break;
+            }
         }
+        switch_core_session_rwunlock(psession);
+    }
+    }
+
+    switch_bool_t AudioStreamer::processAudioData(switch_core_session_t* session, std::string& message) {
+    cJSON* json = cJSON_Parse(message.c_str());
+    switch_bool_t status = SWITCH_FALSE;
+    if (!json) {
+        return status;
+    }
+
+    const char* jsType = cJSON_GetObjectCstr(json, "type");
+    if(jsType && strcmp(jsType, "streamAudio") == 0) {
+        cJSON* jsonData = cJSON_GetObjectItem(json, "data");
+        if(jsonData) {
+            const char* audioData = cJSON_GetObjectCstr(jsonData, "audioData");
+            const char* audioDataType = cJSON_GetObjectCstr(jsonData, "audioDataType");
+            int sampleRate = cJSON_GetObjectItem(jsonData, "sampleRate")->valueint;
+
+            if(audioData && audioDataType && 0 == strcmp(audioDataType, "raw")) {
+                std::string rawAudio = base64_decode(audioData);
+                // Передача декодированных аудиоданных в канал FreeSWITCH
+                writeBinary((uint8_t*)rawAudio.data(), rawAudio.size());
+                status = SWITCH_TRUE;
+            }
+        }
+    }
+
+    cJSON_Delete(json);
+    return status;
     }
 
     switch_bool_t processMessage(switch_core_session_t* session, std::string& message) {

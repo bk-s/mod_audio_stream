@@ -15,7 +15,7 @@
 #define EVENT_ERROR             "mod_audio_stream::error"
 #define EVENT_JSON              "mod_audio_stream::json"
 #define EVENT_PLAY              "mod_audio_stream::play"
-#define EVENT_MEDIA             "mod_audio_stream::media"  // Новое событие для медиа-данных
+#define EVENT_MEDIA             "mod_audio_stream::media"
 
 typedef void (*responseHandler_t)(switch_core_session_t* session, const char* eventName, const char* json);
 
