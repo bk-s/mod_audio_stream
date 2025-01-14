@@ -149,7 +149,7 @@ public:
         }
     }
 
-    void AudioStreamer::eventCallback(notifyEvent_t event, const char* message) {
+    void eventCallback(notifyEvent_t event, const char* message) {
     switch_core_session_t* psession = switch_core_session_locate(m_sessionId.c_str());
     if(psession) {
         switch (event) {
@@ -188,7 +188,7 @@ public:
     }
     }
 
-    switch_bool_t AudioStreamer::processAudioData(switch_core_session_t* session, std::string& message) {
+    switch_bool_t processAudioData(switch_core_session_t* session, std::string& message) {
     cJSON* json = cJSON_Parse(message.c_str());
     switch_bool_t status = SWITCH_FALSE;
     if (!json) {
