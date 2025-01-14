@@ -201,8 +201,11 @@ public:
         switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Invalid JSON message: %s\n", message.c_str());
         return status;
     }
-
+    
     const char* jsType = cJSON_GetObjectCstr(json, "type");
+
+    switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "jsType: '%s'\n", jsType);
+    
     if (jsType && strcmp(jsType, "streamAudio") == 0) {
         cJSON* jsonData = cJSON_GetObjectItem(json, "data");
         if (jsonData) {
