@@ -297,35 +297,22 @@ switch_bool_t fork_write_audio(switch_core_session_t *session, switch_media_bug_
         return SWITCH_TRUE;
     }
 
-    // Получение указателя на объект AudioStreamer
-    AudioStreamer *pAudioStreamer = (AudioStreamer *) tech_pvt->pAudioStreamer;
-    if (!pAudioStreamer) {
-        return SWITCH_TRUE;
-    }
-
-    // Получение следующего аудиофрагмента
-    char encoded_audio_data[MAX_METADATA_LEN];  // Буфер для аудиоданных
-    size_t audio_length = get_next_audio_chunk(pAudioStreamer, encoded_audio_data, sizeof(encoded_audio_data));
-    if (audio_length == 0) {
-        return SWITCH_TRUE;
-    }
-
-    // Декодирование Base64 аудиоданных
-    char raw_audio[MAX_METADATA_LEN];
-    size_t raw_length = base64_decode(encoded_audio_data, raw_audio, sizeof(raw_audio));
-    if (raw_length == 0) {
-        switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Decoded audio is empty.\n");
-        return SWITCH_TRUE;
-    }
-
-    // Передача аудио в канал
+    // Проверка на наличие данных для записи
     if (switch_mutex_trylock(tech_pvt->mutex) == SWITCH_STATUS_SUCCESS) {
+        // Получаем фрейм для записи данных
         frame = switch_core_media_bug_get_write_replace_frame(bug);
-        if (frame) {
-            size_t data_size = (raw_length > frame->buflen) ? frame->buflen : raw_length;
-            memcpy(frame->data, raw_audio, data_size);
+        if (frame && tech_pvt->data && tech_pvt->data_length > 0) {
+            size_t data_size = (tech_pvt->data_length > frame->buflen) ? frame->buflen : tech_pvt->data_length;
+
+            // Копируем данные в фрейм
+            memcpy(frame->data, tech_pvt->data, data_size);
             frame->datalen = data_size;
+            frame->samples = data_size / 2;  // Пример для 16-битного аудио
+
+            // Передаем данные в канал
             switch_core_media_bug_set_write_replace_frame(bug, frame);
+        } else {
+            switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "No audio data available.\n");
         }
         switch_mutex_unlock(tech_pvt->mutex);
     }

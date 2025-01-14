@@ -33,7 +33,8 @@ struct private_data {
     char initialMetadata[MAX_METADATA_LEN];
     RingBuffer *buffer;
     switch_buffer_t *sbuffer;
-    uint8_t *data;
+    uint8_t *data;  // Буфер для хранения аудиоданных
+    size_t data_length;  // Длина аудиоданных
     int rtp_packets;
     int audio_playing:1;  // Новое поле для отслеживания состояния воспроизведения
 };

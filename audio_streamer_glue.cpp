@@ -189,7 +189,7 @@ public:
     }
     }
 
-    switch_bool_t processAudioData(switch_core_session_t* session, std::string& message) {
+   switch_bool_t processAudioData(switch_core_session_t* session, std::string& message) { 
     cJSON* json = cJSON_Parse(message.c_str());
     switch_bool_t status = SWITCH_FALSE;
 
@@ -233,7 +233,7 @@ public:
 
     cJSON_Delete(json);
     return status;
-}
+    }
 
     switch_bool_t processMessage(switch_core_session_t* session, std::string& message) {
         cJSON* json = cJSON_Parse(message.c_str());
