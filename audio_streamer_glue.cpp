@@ -234,9 +234,7 @@ public:
             codec = (switch_codec_t *)switch_channel_get_private(channel, MY_BUG_NAME);
 
             if (codec) {
-                switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "Using codec: %s\n", codec->name);
-                // Логируем полученный кодек
-                switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "Using codec: %s\n", codec->encoding);
+                switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "Using codec");
 
                 // Передача аудиоданных в канал
                 switch_frame_t write_frame = {};
