@@ -15,6 +15,7 @@
 #define EVENT_ERROR             "mod_audio_stream::error"
 #define EVENT_JSON              "mod_audio_stream::json"
 #define EVENT_PLAY              "mod_audio_stream::play"
+#define EVENT_MEDIA             "mod_audio_stream::media"  // Новое событие для медиа-данных
 
 typedef void (*responseHandler_t)(switch_core_session_t* session, const char* eventName, const char* json);
 
@@ -29,11 +30,12 @@ struct private_data {
     int channels;
     int audio_paused:1;
     int close_requested:1;
-    char initialMetadata[8192];
+    char initialMetadata[MAX_METADATA_LEN];
     RingBuffer *buffer;
     switch_buffer_t *sbuffer;
     uint8_t *data;
     int rtp_packets;
+    int audio_playing:1;  // Новое поле для отслеживания состояния воспроизведения
 };
 
 typedef struct private_data private_t;
@@ -42,7 +44,8 @@ enum notifyEvent_t {
     CONNECT_SUCCESS,
     CONNECT_ERROR,
     CONNECTION_DROPPED,
-    MESSAGE
+    MESSAGE,
+    MEDIA  // Новое событие для медиа-данных
 };
 
 #endif //MOD_AUDIO_STREAM_H

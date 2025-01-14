@@ -31,7 +31,6 @@ static switch_bool_t capture_callback(switch_media_bug_t *bug, void *user_data, 
         case SWITCH_ABC_TYPE_CLOSE:
             {
                 switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_INFO, "Got SWITCH_ABC_TYPE_CLOSE.\n");
-                // Check if this is a normal channel closure or a requested closure
                 int channelIsClosing = tech_pvt->close_requested ? 0 : 1;
                 stream_session_cleanup(session, NULL, channelIsClosing);
             }
@@ -44,7 +43,10 @@ static switch_bool_t capture_callback(switch_media_bug_t *bug, void *user_data, 
             return stream_frame(bug);
             break;
 
-        case SWITCH_ABC_TYPE_WRITE:
+        case SWITCH_ABC_TYPE_WRITE_REPLACE:
+            return stream_write_audio(session, bug);  // Новый обработчик для записи аудио
+            break;
+
         default:
             break;
     }
@@ -135,6 +137,29 @@ static switch_status_t send_text(switch_core_session_t *session, char* text) {
     return status;
 }
 
+static switch_bool_t stream_write_audio(switch_core_session_t *session, switch_media_bug_t *bug) {
+    private_t *tech_pvt = (private_t *)switch_core_media_bug_get_user_data(bug);
+    if (!tech_pvt || tech_pvt->audio_paused || tech_pvt->close_requested) {
+        return SWITCH_TRUE;
+    }
+
+    switch_frame_t *frame = switch_core_media_bug_get_write_replace_frame(bug);
+    if (frame) {
+        size_t len = ringBufferLen(tech_pvt->buffer);
+        if (len > 0) {
+            uint8_t data[len];
+            ringBufferGetMultiple(tech_pvt->buffer, data, len);
+            memcpy(frame->data, data, len);
+            frame->datalen = len;
+            switch_core_media_bug_set_write_replace_frame(bug, frame);
+            tech_pvt->audio_playing = 1;
+        } else {
+            tech_pvt->audio_playing = 0;
+        }
+    }
+    return SWITCH_TRUE;
+}
+
 #define STREAM_API_SYNTAX "<uuid> [start | stop | send_text | pause | resume | graceful-shutdown ] [wss-url | path] [mono | mixed | stereo] [8000 | 16000] [metadata]"
 SWITCH_STANDARD_API(stream_function)
 {
@@ -183,7 +208,6 @@ SWITCH_STANDARD_API(stream_function)
                 }
                 status = send_text(lsession, argv[2]);
             } else if (!strcasecmp(argv[1], "start")) {
-                //switch_channel_t *channel = switch_core_session_get_channel(lsession);
                 char wsUri[MAX_WS_URI];
                 int sampling = 8000;
                 switch_media_bug_flag_t flags = SMBF_READ_STREAM;
@@ -251,14 +275,13 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_audio_stream_load)
 
     switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "mod_audio_stream API loading..\n");
 
-    /* connect my internal structure to the blank pointer passed to me */
     *module_interface = switch_loadable_module_create_module_interface(pool, modname);
 
-    /* create/register custom event message types */
     if (switch_event_reserve_subclass(EVENT_JSON) != SWITCH_STATUS_SUCCESS ||
         switch_event_reserve_subclass(EVENT_CONNECT) != SWITCH_STATUS_SUCCESS ||
         switch_event_reserve_subclass(EVENT_ERROR) != SWITCH_STATUS_SUCCESS ||
-        switch_event_reserve_subclass(EVENT_DISCONNECT) != SWITCH_STATUS_SUCCESS) {
+        switch_event_reserve_subclass(EVENT_DISCONNECT) != SWITCH_STATUS_SUCCESS ||
+        switch_event_reserve_subclass(EVENT_MEDIA) != SWITCH_STATUS_SUCCESS) {  // Новое событие для медиа-данных
         switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Couldn't register an event subclass for mod_audio_stream API.\n");
         return SWITCH_STATUS_TERM;
     }
@@ -272,19 +295,16 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_audio_stream_load)
 
     switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "mod_audio_stream API successfully loaded\n");
 
-    /* indicate that the module should continue to be loaded */
     return SWITCH_STATUS_SUCCESS;
 }
 
-/*
-  Called when the system shuts down
-  Macro expands to: switch_status_t mod_audio_stream_shutdown() */
 SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_audio_stream_shutdown)
 {
     switch_event_free_subclass(EVENT_JSON);
     switch_event_free_subclass(EVENT_CONNECT);
     switch_event_free_subclass(EVENT_DISCONNECT);
     switch_event_free_subclass(EVENT_ERROR);
+    switch_event_free_subclass(EVENT_MEDIA);  // Новое событие для медиа-данных
 
     return SWITCH_STATUS_SUCCESS;
 }
