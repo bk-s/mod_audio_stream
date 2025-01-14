@@ -190,7 +190,7 @@ public:
     }
     }
 
-   switch_bool_t processAudioData(switch_core_session_t* session, std::string& message) { 
+   switch_bool_t processAudioData(switch_core_session_t* session, std::string& message) {
     cJSON* json = cJSON_Parse(message.c_str());
     switch_bool_t status = SWITCH_FALSE;
 
@@ -201,38 +201,43 @@ public:
         switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Invalid JSON message: %s\n", message.c_str());
         return status;
     }
-    
-    const char* jsType = cJSON_GetObjectCstr(json, "type");
 
-    switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "jsType: '%s'\n", jsType);
-    
-    if (jsType && strcmp(jsType, "streamAudio") == 0) {
-        cJSON* jsonData = cJSON_GetObjectItem(json, "data");
-        if (jsonData) {
-            const char* audioData = cJSON_GetObjectCstr(jsonData, "audioData");
-            const char* audioDataType = cJSON_GetObjectCstr(jsonData, "audioDataType");
-            int sampleRate = cJSON_GetObjectItem(jsonData, "sampleRate")->valueint;
+    cJSON* jsonData = cJSON_GetObjectItem(json, "data");
+    if (jsonData) {
+        const char* audioData = cJSON_GetObjectCstr(jsonData, "audioData");
+        const char* audioDataType = cJSON_GetObjectCstr(jsonData, "audioDataType");
+        int sampleRate = cJSON_GetObjectItem(jsonData, "sampleRate")->valueint;
+        int channels = cJSON_GetObjectItem(jsonData, "channels") ? cJSON_GetObjectItem(jsonData, "channels")->valueint : 1;  // По умолчанию 1 канал
 
-            // Логируем полученные данные
-            switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "AudioDataType: %s, SampleRate: %d\n", audioDataType, sampleRate);
+        // Логируем полученные данные
+        switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "AudioDataType: %s, SampleRate: %d, Channels: %d\n", audioDataType, sampleRate, channels);
 
-            if (audioData && audioDataType && strcmp(audioDataType, "raw") == 0) {
-                std::string rawAudio = base64_decode(audioData);
+        if (audioData && audioDataType && strcmp(audioDataType, "raw") == 0) {
+            std::string rawAudio = base64_decode(audioData);
 
-                // Логируем результат декодирования
-                if (rawAudio.empty()) {
-                    switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Decoded audio is empty.\n");
-                    cJSON_Delete(json);
-                    return status;
-                } else {
-                    switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "Decoded audio size: %zu bytes\n", rawAudio.size());
-                }
+            // Логируем результат декодирования
+            if (rawAudio.empty()) {
+                switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Decoded audio is empty.\n");
+                cJSON_Delete(json);
+                return status;
+            } else {
+                switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "Decoded audio size: %zu bytes\n", rawAudio.size());
+            }
+
+            // Получаем кодек из сессии
+            switch_codec_t *codec = NULL;
+            if (switch_core_session_get_codec(session, &codec) == SWITCH_STATUS_SUCCESS && codec) {
+                // Логируем полученный кодек
+                switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "Using codec: %s\n", codec->encoding);
 
                 // Передача аудиоданных в канал
                 switch_frame_t write_frame = {};
                 write_frame.data = (void*)rawAudio.data();
                 write_frame.datalen = rawAudio.size();
                 write_frame.samples = rawAudio.size() / 2;  // Assuming 16-bit audio
+                write_frame.rate = sampleRate;  // Частота дискретизации
+                write_frame.channels = channels;  // Число каналов
+                write_frame.codec = codec;  // Используем полученный кодек
 
                 // Логируем попытку записи в канал
                 switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "Attempting to write audio frame with size: %zu bytes\n", write_frame.datalen);
@@ -243,13 +248,15 @@ public:
                 } else {
                     switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Failed to write audio frame.\n");
                 }
+            } else {
+                switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Failed to retrieve codec from session.\n");
             }
         }
-    }
+}
 
     cJSON_Delete(json);
     return status;
-}
+   }
 
     switch_bool_t processMessage(switch_core_session_t* session, std::string& message) {
         cJSON* json = cJSON_Parse(message.c_str());
