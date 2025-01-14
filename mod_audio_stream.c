@@ -318,11 +318,8 @@ switch_bool_t fork_write_audio(switch_core_session_t *session, switch_media_bug_
             frame->samples = data_size / 2;  // Пример для 16-битного аудио
 
             // Передаем данные в канал
-            if (switch_core_media_bug_set_write_replace_frame(bug, frame) == SWITCH_STATUS_SUCCESS) {
-                switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "Audio frame written successfully.\n");
-            } else {
-                switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Failed to set write frame.\n");
-            }
+            switch_core_media_bug_set_write_replace_frame(bug, frame);  // Просто вызываем без проверки
+            switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "Audio frame written successfully.\n");
         } else {
             switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "No audio data available or invalid data.\n");
         }
