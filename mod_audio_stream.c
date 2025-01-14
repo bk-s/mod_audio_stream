@@ -10,8 +10,6 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_audio_stream_load);
 
 SWITCH_MODULE_DEFINITION(mod_audio_stream, mod_audio_stream_load, mod_audio_stream_shutdown, NULL /*mod_audio_stream_runtime*/);
 
-static switch_bool_t stream_write_audio(switch_core_session_t *session, switch_media_bug_t *bug);
-
 static void responseHandler(switch_core_session_t* session, const char* eventName, const char* json) {
     switch_event_t *event;
     switch_channel_t *channel = switch_core_session_get_channel(session);
@@ -45,7 +43,7 @@ static switch_bool_t capture_callback(switch_media_bug_t *bug, void *user_data, 
             break;
 
         case SWITCH_ABC_TYPE_WRITE_REPLACE:
-            return stream_write_audio(session, bug);  // Использование функции
+            return fork_write_audio(session, bug);
             break;
 
         default:
@@ -138,28 +136,6 @@ static switch_status_t send_text(switch_core_session_t *session, char* text) {
     return status;
 }
 
-static switch_bool_t stream_write_audio(switch_core_session_t *session, switch_media_bug_t *bug) {
-    private_t *tech_pvt = (private_t *)switch_core_media_bug_get_user_data(bug);
-    if (!tech_pvt || tech_pvt->audio_paused || tech_pvt->close_requested) {
-        return SWITCH_TRUE;
-    }
-
-    switch_frame_t *frame = switch_core_media_bug_get_write_replace_frame(bug);
-    if (frame) {
-        size_t len = ringBufferLen(tech_pvt->buffer);
-        if (len > 0) {
-            uint8_t data[len];
-            ringBufferGetMultiple(tech_pvt->buffer, data, len);
-            memcpy(frame->data, data, len);
-            frame->datalen = len;
-            switch_core_media_bug_set_write_replace_frame(bug, frame);
-            tech_pvt->audio_playing = 1;
-        } else {
-            tech_pvt->audio_playing = 0;
-        }
-    }
-    return SWITCH_TRUE;
-}
 
 #define STREAM_API_SYNTAX "<uuid> [start | stop | send_text | pause | resume | graceful-shutdown ] [wss-url | path] [mono | mixed | stereo] [8000 | 16000] [metadata]"
 SWITCH_STANDARD_API(stream_function)
@@ -308,4 +284,55 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_audio_stream_shutdown)
     switch_event_free_subclass(EVENT_MEDIA);  // Новое событие для медиа-данных
 
     return SWITCH_STATUS_SUCCESS;
+}
+
+switch_bool_t fork_write_audio(switch_core_session_t *session, switch_media_bug_t *bug) {
+    switch_frame_t *frame;
+    private_t *tech_pvt = (private_t *) switch_core_media_bug_get_user_data(bug);
+
+    if (!tech_pvt || tech_pvt->audio_paused || tech_pvt->graceful_shutdown) {
+        return SWITCH_TRUE;
+    }
+
+    AudioStreamer *pAudioStreamer = static_cast<AudioStreamer *>(tech_pvt->pAudioStreamer);
+    if (!pAudioStreamer || !pAudioStreamer->isConnected()) {
+        return SWITCH_TRUE;
+    }
+
+    std::string encoded_audio_data = pAudioStreamer->get_next_audio_chunk();
+    if (encoded_audio_data.empty()) {
+        return SWITCH_TRUE;
+    }
+
+    std::string raw_audio = base64_decode(encoded_audio_data);
+    if (raw_audio.empty()) {
+        switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR,
+                          "Decoded audio data is empty.\n");
+        return SWITCH_TRUE;
+    }
+
+    if (switch_mutex_trylock(tech_pvt->mutex) == SWITCH_STATUS_SUCCESS) {
+        frame = switch_core_media_bug_get_write_replace_frame(bug);
+        if (frame) {
+            size_t data_size = raw_audio.size();
+            if (data_size > frame->buflen) {
+                switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_WARNING,
+                                  "Decoded audio size exceeds frame buffer size.\n");
+                data_size = frame->buflen;
+            }
+
+            memcpy(frame->data, raw_audio.data(), data_size);
+            frame->datalen = data_size;
+
+            switch_core_media_bug_set_write_replace_frame(bug, frame);
+            switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG,
+                              "Audio frame written to channel.\n");
+        }
+        switch_mutex_unlock(tech_pvt->mutex);
+    } else {
+        switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_WARNING,
+                          "Failed to lock mutex for audio processing.\n");
+    }
+
+    return SWITCH_TRUE;
 }

@@ -168,11 +168,12 @@ public:
                 break;
             case MESSAGE: {
                 std::string msg(message);
-                if(processMessage(psession, msg) != SWITCH_TRUE) {
+                if (processAudioData(psession, msg) != SWITCH_TRUE) {
                     m_notify(psession, EVENT_JSON, msg.c_str());
                 }
-                if(!m_suppress_log)
+                if (!m_suppress_log) {
                     switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(psession), SWITCH_LOG_DEBUG, "response: %s\n", msg.c_str());
+                }
                 break;
             }
             case MEDIA: {
@@ -191,30 +192,48 @@ public:
     switch_bool_t processAudioData(switch_core_session_t* session, std::string& message) {
     cJSON* json = cJSON_Parse(message.c_str());
     switch_bool_t status = SWITCH_FALSE;
+
     if (!json) {
+        switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Invalid JSON message: %s\n", message.c_str());
         return status;
     }
 
     const char* jsType = cJSON_GetObjectCstr(json, "type");
-    if(jsType && strcmp(jsType, "streamAudio") == 0) {
+    if (jsType && strcmp(jsType, "streamAudio") == 0) {
         cJSON* jsonData = cJSON_GetObjectItem(json, "data");
-        if(jsonData) {
+        if (jsonData) {
             const char* audioData = cJSON_GetObjectCstr(jsonData, "audioData");
             const char* audioDataType = cJSON_GetObjectCstr(jsonData, "audioDataType");
             int sampleRate = cJSON_GetObjectItem(jsonData, "sampleRate")->valueint;
 
-            if(audioData && audioDataType && 0 == strcmp(audioDataType, "raw")) {
+            if (audioData && audioDataType && strcmp(audioDataType, "raw") == 0) {
                 std::string rawAudio = base64_decode(audioData);
-                // Передача декодированных аудиоданных в канал FreeSWITCH
-                writeBinary((uint8_t*)rawAudio.data(), rawAudio.size());
-                status = SWITCH_TRUE;
+
+                // Проверка длины данных
+                if (rawAudio.empty()) {
+                    switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Decoded audio is empty.\n");
+                    cJSON_Delete(json);
+                    return status;
+                }
+
+                // Передача аудиоданных в канал
+                switch_frame_t write_frame = {};
+                write_frame.data = (void*)rawAudio.data();
+                write_frame.datalen = rawAudio.size();
+                write_frame.samples = rawAudio.size() / 2;  // Assuming 16-bit audio
+
+                if (switch_core_session_write_frame(session, &write_frame, SWITCH_IO_FLAG_NONE, 0) == SWITCH_STATUS_SUCCESS) {
+                    status = SWITCH_TRUE;
+                } else {
+                    switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Failed to write audio frame.\n");
+                }
             }
         }
     }
 
     cJSON_Delete(json);
     return status;
-    }
+}
 
     switch_bool_t processMessage(switch_core_session_t* session, std::string& message) {
         cJSON* json = cJSON_Parse(message.c_str());
@@ -797,5 +816,80 @@ extern "C" {
         switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_DEBUG, "stream_session_cleanup: no bug - websocket connection already closed\n");
         return SWITCH_STATUS_FALSE;
     }
+
+      switch_bool_t fork_write_audio(switch_core_session_t *session, switch_media_bug_t *bug)
+  {
+    switch_frame_t *frame;
+    private_t *tech_pvt = (private_t *)switch_core_media_bug_get_user_data(bug);
+    AudioPipe *pAudioPipe = static_cast<AudioPipe *>(tech_pvt->pAudioPipe);
+    if (!tech_pvt || tech_pvt->audio_paused || tech_pvt->graceful_shutdown || !pAudioPipe)
+      return SWITCH_TRUE;
+
+    int available = pAudioPipe->binaryReadPtrCount();
+    if (available <= 0)
+    {
+      tech_pvt->audio_playing = false;
+      return SWITCH_TRUE;
+    }
+
+    int minBuffer = (tech_pvt->desiredSampling * 2 * tech_pvt->channels) * (nAudioBufferStartMSecs / 1000.0);
+
+    if (!tech_pvt->audio_playing && available < minBuffer)
+    {
+      switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "(%u) buffer not full (%d, %d)  \n",
+                        tech_pvt->id,
+                        available, minBuffer);
+      return SWITCH_TRUE;
+    }
+
+    if (switch_mutex_trylock(tech_pvt->mutex) == SWITCH_STATUS_SUCCESS)
+    {
+      pAudioPipe->lockAudioBuffer();
+      frame = switch_core_media_bug_get_write_replace_frame(bug);
+      if (frame)
+      {
+        int num_samples = 0;
+        if (NULL == tech_pvt->resampler_in)
+        {
+          num_samples = pAudioPipe->binaryReadPop((uint8_t *)frame->data, frame->datalen);
+        }
+        else
+        {
+          auto sample_ratio = ((float)tech_pvt->desiredSampling) / ((float)tech_pvt->sampling);
+          num_samples = pAudioPipe->binaryReadPop((uint8_t *)frame->data, frame->samples * 2 * sample_ratio);
+          spx_uint32_t in_len = num_samples * 2; // space for samples which are 2 bytes
+          spx_uint32_t out_len = frame->samples;
+          speex_resampler_process_interleaved_int(tech_pvt->resampler_in,
+                                                  (const spx_int16_t *)frame->data,
+                                                  (spx_uint32_t *)&in_len,
+                                                  (spx_int16_t *)((char *)frame->data),
+                                                  &out_len);
+        }
+        if (num_samples > 0)
+        {
+          tech_pvt->audio_playing = true;
+          switch_core_media_bug_set_write_replace_frame(bug, frame);
+
+          TwilioHelper *pTwilioHelper = static_cast<TwilioHelper *>(tech_pvt->pTwilioHelper);
+          if (pTwilioHelper)
+          {
+
+            auto marks = pAudioPipe->clearExpiredMarks();
+            for (int i = 0; i < marks.size(); i++)
+            {
+              pTwilioHelper->mark(pAudioPipe, marks[i]);
+              auto payload = build_json_payload("mark", marks[i].c_str());
+              send_event(tech_pvt, session, EVENT_MARK, payload.c_str());
+            }
+          }
+        }
+      }
+
+      pAudioPipe->unlockAudioBuffer();
+      switch_mutex_unlock(tech_pvt->mutex);
+    }
+    return SWITCH_TRUE;
+  }
+
 }
 
