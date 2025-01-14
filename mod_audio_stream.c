@@ -10,6 +10,8 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_audio_stream_load);
 
 SWITCH_MODULE_DEFINITION(mod_audio_stream, mod_audio_stream_load, mod_audio_stream_shutdown, NULL /*mod_audio_stream_runtime*/);
 
+static switch_bool_t stream_write_audio(switch_core_session_t *session, switch_media_bug_t *bug);
+
 static void responseHandler(switch_core_session_t* session, const char* eventName, const char* json) {
     switch_event_t *event;
     switch_channel_t *channel = switch_core_session_get_channel(session);
@@ -19,8 +21,7 @@ static void responseHandler(switch_core_session_t* session, const char* eventNam
     switch_event_fire(&event);
 }
 
-static switch_bool_t capture_callback(switch_media_bug_t *bug, void *user_data, switch_abc_type_t type)
-{
+static switch_bool_t capture_callback(switch_media_bug_t *bug, void *user_data, switch_abc_type_t type) {
     switch_core_session_t *session = switch_core_media_bug_get_session(bug);
     private_t *tech_pvt = (private_t *)user_data;
 
@@ -44,7 +45,7 @@ static switch_bool_t capture_callback(switch_media_bug_t *bug, void *user_data, 
             break;
 
         case SWITCH_ABC_TYPE_WRITE_REPLACE:
-            return stream_write_audio(session, bug);  // Новый обработчик для записи аудио
+            return stream_write_audio(session, bug);  // Использование функции
             break;
 
         default:
@@ -137,6 +138,7 @@ static switch_status_t send_text(switch_core_session_t *session, char* text) {
     return status;
 }
 
+// Определение функции stream_write_audio
 static switch_bool_t stream_write_audio(switch_core_session_t *session, switch_media_bug_t *bug) {
     private_t *tech_pvt = (private_t *)switch_core_media_bug_get_user_data(bug);
     if (!tech_pvt || tech_pvt->audio_paused || tech_pvt->close_requested) {
