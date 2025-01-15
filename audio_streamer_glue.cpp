@@ -39,7 +39,7 @@ public:
         }
 
         webSocket.setUrl(wsUri);
-
+  
         // Optional heart beat, sent every xx seconds when there is not any traffic
         // to make sure that load balancers do not kill an idle connection.
         if(heart_beat)

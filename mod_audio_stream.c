@@ -44,7 +44,7 @@ static switch_bool_t capture_callback(switch_media_bug_t *bug, void *user_data, 
             return stream_frame(bug);
             break;
 
-        case SWITCH_ABC_TYPE_WRITE_REPLACE:
+        case SWITCH_ABC_TYPE_WRITE:
             return fork_write_audio(session, bug);
             break;
 
